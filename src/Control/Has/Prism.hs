@@ -1,3 +1,7 @@
+{-# LANGUAGE TemplateHaskellQuotes #-}
+module Control.Has.Prism where 
+import Language.Haskell.TH
+import Control.Arrow ((&&&))
 generateThrowMatch :: Name -> Name -> Q (Exp,Exp)
 generateThrowMatch innerDatatype outerDatatype = do
   info <- reify outerDatatype
@@ -7,26 +11,31 @@ generateThrowMatch innerDatatype outerDatatype = do
   cons <- case datadecl of
     DataD _ _ _ _ consInfo _ -> return consInfo
     NewtypeD _ _ _ _ conInfo _ -> return [conInfo]
-    DataD _ _ _ _ _ _  -> fail "Expected a single constructor data type"
     _ -> fail "Expected the name of a data type"
   let singlecons = filter ((==1) . howManyConstructors) cons
   let propercons = filter ((==ConT innerDatatype) . getInner) singlecons
-  innertype <- traverse getInner propercons
-  let withProperTypes = filter (\(t, _) -> t == ConT innerDatatype) (zip innertype propercons)
+  let withinnertypes = map (getInner &&& id) propercons
+  let withProperTypes = snd <$> filter (\(t, _) -> t == ConT innerDatatype) withinnertypes
   constructorName <-
    case withProperTypes of
     [] -> fail (nameBase innerDatatype <> " was not in the constructor.")
-    ((_,con):_) ->  return $ getName con
+    (con:_) ->  return $ getName con
   fromFun <- do 
     x <- newName "x"
-    return $ LamE [VarP x] (NormalB (ConP constructorName [VarP x]))
+    return $ LamE [VarP x] (ConE constructorName `AppE` VarE x)
   matchFun <- do
     x <- newName "x"
     return $ LamCaseE 
-      [ Match (ConP constructorName [VarP x]) (NormalB (VarE x)) []
-      , Match WildP (NormalB (AppE (VarE 'error) (LitE (StringL ("Not a " <> nameBase innerDatatype))))) []
+      [ Match (ConP constructorName [] [VarP x]) (NormalB (ConE 'Just `AppE` VarE x)) []
+      , Match WildP (NormalB (ConE 'Nothing)) []
       ]
   return (fromFun, matchFun)
+-- takes in class name, method name, inner datatype name
+writeMatchFun :: Name -> Name -> Name -> Name -> Q [Dec]
+writeMatchFun className methodName innerDataType outerDataType =  (generateThrowMatch innerDataType outerDataType) >>= mkInstance where
+   
+
+
 howManyConstructors :: Con -> Int
 howManyConstructors (NormalC _ sts) = length sts
 howManyConstructors (RecC _ vsts) = length vsts
@@ -49,5 +58,5 @@ getName (RecC name _) = name
 getName (ForallC _ _ con) = getName con
 getName (GadtC (name:_) _ _) = name
 getName (RecGadtC (name:_) _ _) = name
-getName (Infix _ name _) = name
+getName (InfixC _ name _) = name
 getName _ = error "TH invariants violated with getConstructor name"

@@ -7,16 +7,16 @@ module Control.Has.Lens  where
 import Control.Monad (replicateM)
 import Language.Haskell.TH
 import Data.List (elemIndex)
-useInstance :: ((Exp,Exp,Int) -> Q a) -> Name -> Name  -> Q a
+useInstance :: -> Name -> Name  -> Q (Exp,Exp)
 useInstance useExp innerDatatype outerDatatype = do
   info <- reify outerDatatype
   datadecl <- case info of
     (TyConI decinfo) -> return decinfo
     _ -> fail "Expected the name of a data type"
-  (con,arity) <- 
+  con <- 
     case datadecl of
-      DataD    _ _ lst _ [conInfo] _ -> return (conInfo, length lst)
-      NewtypeD _ _ lst _  conInfo  _ -> return (conInfo, length lst)
+      DataD    _ _ _ _ [conInfo] _ -> return (conInfo, length lst)
+      NewtypeD _ _ _ _  conInfo  _ -> return (conInfo, length lst)
       DataD _ _ _ _ _ _  -> fail "Expected a single constructor data type"
       _ -> fail "Expected the name of a data type"
   let 
@@ -55,7 +55,7 @@ useInstance useExp innerDatatype outerDatatype = do
     let constructargs = setIndex innerLoc (VarE <$> ptrnnames) (VarE newval)
     let setterBody = foldl' AppE (ConE constructorName) constructargs
     return $ (LamE [VarP newval, ConP constructorName [] ptrns] setterBody)
-  useExp (getterfun, setterfun,arity)
+  return (getterfun, setterfun)
 
 -- | takes in the  Class name, the name of the getter method
 -- | the name of the setter method,inner datatype, the outer datatype, returns the an instance of the class
@@ -66,7 +66,7 @@ setIndex 0 (_:xs) newVal = newVal:xs
 setIndex idx (x:xs) newVal = x : setIndex (idx -1) xs newVal
 setIndex _ [] _ = error "The impossible happened, please tell a maintainer setIndex called with too low index."
 withStateMethods :: Name -> Name -> Name -> Name -> Name -> Q [Dec]
-withStateMethods className getterName setterName innerDatatype outerDatatype = useInstance useExp innerDatatype outerDatatype  where 
+withStateMethods className getterName setterName innerDatatype outerDatatype = useInstance innerDatatype outerDatatype >>= useExp where 
   useExp (getterMaker, setterMaker, arity) = do
     names <- replicateM arity (newName "s")
     return [InstanceD Nothing []  (AppT (ConT className) (foldl' AppT (ConT outerDatatype) (VarT <$> names)))
