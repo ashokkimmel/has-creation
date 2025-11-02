@@ -59,14 +59,13 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  MyLib
-                    , MyLib2
-                    , Control.Has.Env
+    exposed-modules: Control.Has.Env
                     , Control.Has.Has
                     , Control.Has.Error
                     , Control.Has.Config
                     , Control.Has.Lens
-
+                    , Control.Has.Prism
+                    , Control.Has.Arity
     -- Modules included in this library but not exported.
     -- other-modules:
 
