@@ -7,16 +7,17 @@ module Control.Has.Lens  where
 import Control.Monad (replicateM)
 import Language.Haskell.TH
 import Data.List (elemIndex)
-useInstance :: -> Name -> Name  -> Q (Exp,Exp)
-useInstance useExp innerDatatype outerDatatype = do
+import Control.Has.Arity (getArity)
+useInstance :: Name -> Name  -> Q (Exp,Exp)
+useInstance innerDatatype outerDatatype = do
   info <- reify outerDatatype
   datadecl <- case info of
     (TyConI decinfo) -> return decinfo
     _ -> fail "Expected the name of a data type"
   con <- 
     case datadecl of
-      DataD    _ _ _ _ [conInfo] _ -> return (conInfo, length lst)
-      NewtypeD _ _ _ _  conInfo  _ -> return (conInfo, length lst)
+      DataD    _ _ _ _ [conInfo] _ -> return conInfo
+      NewtypeD _ _ _ _  conInfo  _ -> return conInfo
       DataD _ _ _ _ _ _  -> fail "Expected a single constructor data type"
       _ -> fail "Expected the name of a data type"
   let 
@@ -66,19 +67,19 @@ setIndex 0 (_:xs) newVal = newVal:xs
 setIndex idx (x:xs) newVal = x : setIndex (idx -1) xs newVal
 setIndex _ [] _ = error "The impossible happened, please tell a maintainer setIndex called with too low index."
 withStateMethods :: Name -> Name -> Name -> Name -> Name -> Q [Dec]
-withStateMethods className getterName setterName innerDatatype outerDatatype = useInstance innerDatatype outerDatatype >>= useExp where 
+withStateMethods className getterName setterName innerDatatype outerDataType = useInstance innerDatatype outerDataType >>= useExp where 
   useExp (getterMaker, setterMaker, arity) = do
-    names <- replicateM arity (newName "s")
-    return [InstanceD Nothing []  (AppT (ConT className) (foldl' AppT (ConT outerDatatype) (VarT <$> names)))
+    names <- getArity outerDataType
+    return [InstanceD Nothing []  (AppT (ConT className) (foldl' AppT (ConT outerDataType) (VarT <$> names)))
        [ ValD (VarP getterName) (NormalB (getterMaker)) []
        , ValD (VarP setterName) (NormalB (setterMaker)) []
        ]]
 -- | takes in the  Class name, the name of the getter method
 -- | the inner datatype, the outer datatype, returns the an instance of the class
 withGetterMethod :: Name -> Name -> Name -> Name -> Q [Dec]
-withGetterMethod className getterName innerDatatype outerDatatype = useInstance useExp innerDatatype outerDatatype  where 
-  useExp (getterMaker, _,arity) = do
-    names <- replicateM arity (newName "s") 
-    return [InstanceD Nothing []  (AppT (ConT className) (foldl' AppT (ConT outerDatatype) (VarT <$> names)))
+withGetterMethod className getterName innerDatatype outerDataType = useInstance innerDatatype outerDataType >>= useExp  where 
+  useExp (getterMaker, _) = do
+    names <-  getArity outerDataType
+    return [InstanceD Nothing []  (AppT (ConT className) (foldl' AppT (ConT outerDataType) (VarT <$> names)))
        [ ValD (VarP getterName) (NormalB getterMaker) []
        ]]

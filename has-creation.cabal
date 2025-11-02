@@ -76,8 +76,8 @@ library
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.21.0.0,
                       template-haskell ^>=2.23,
-                      mtl >= 2.2.1 &&  < 2.4 
-
+                      mtl >= 2.2.1 &&  < 2.4, 
+                      
     -- Directories containing source files.
     hs-source-dirs:   src
 

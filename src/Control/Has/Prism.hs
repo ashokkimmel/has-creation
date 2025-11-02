@@ -2,6 +2,8 @@
 module Control.Has.Prism where 
 import Language.Haskell.TH
 import Control.Arrow ((&&&))
+import Control.Has.Arity (getArity)
+import Data.List (foldl')
 generateThrowMatch :: Name -> Name -> Q (Exp,Exp)
 generateThrowMatch innerDatatype outerDatatype = do
   info <- reify outerDatatype
@@ -31,10 +33,54 @@ generateThrowMatch innerDatatype outerDatatype = do
       ]
   return (fromFun, matchFun)
 -- takes in class name, method name, inner datatype name
-writeMatchFun :: Name -> Name -> Name -> Name -> Q [Dec]
-writeMatchFun className methodName innerDataType outerDataType =  (generateThrowMatch innerDataType outerDataType) >>= mkInstance where
-   
-
+writeMatchFun :: Name -> Name -> Name -> Name -> Q Dec
+writeMatchFun className methodName innerDataType outerDataType =  mkInstance (generateThrowMatch innerDataType outerDataType) where
+   mkInstance x = do 
+    names <-  getArity outerDataType
+    instanceD
+      (pure [])
+      ((conT className) `appT` (foldl' appT (conT outerDataType) (varT <$> names)))
+      [valD 
+        (varP methodName) 
+        (normalB (snd <$> x)) 
+        []
+      ]
+writeFromFun :: Name -> Name -> Name -> Name -> Q Dec
+writeFromFun className methodName innerDataType outerDataType =  mkInstance (generateThrowMatch innerDataType outerDataType) where
+   mkInstance :: Q (Exp,Exp) -> Q Dec
+   mkInstance x = do
+    names <-  getArity outerDataType
+    instanceD
+      (pure [])
+      ((conT className) `appT` (foldl' appT (conT outerDataType) (varT <$> names)))
+      [valD 
+        (varP methodName) 
+        (normalB (fst <$> x)) 
+        []
+      ]
+writeFromMatchFun :: Name -> Name -> Name -> Name -> Name -> Name -> Q [Dec]
+writeFromMatchFun classNameFrom methodNameFrom classNameMatch methodNameMatch innerDataType outerDataType =  mkInstance (generateThrowMatch innerDataType outerDataType) where
+   mkInstance :: Q (Exp,Exp) -> Q [Dec]
+   mkInstance x = do
+    names <-  getArity outerDataType
+    sequence
+      [instanceD
+        (pure [])
+        ((conT classNameMatch) `appT` (foldl' appT (conT outerDataType) (varT <$> names)))
+        [valD 
+          (varP methodNameMatch) 
+          (normalB (snd <$> x)) 
+          []
+        ]
+      ,instanceD
+        (pure [])
+        ((conT classNameFrom) `appT` (foldl' appT (conT outerDataType) (varT <$> names)))
+        [valD
+          (varP methodNameFrom)
+          (normalB (fst <$> x))
+          []
+        ]
+      ]
 
 howManyConstructors :: Con -> Int
 howManyConstructors (NormalC _ sts) = length sts

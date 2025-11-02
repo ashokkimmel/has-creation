@@ -5,7 +5,8 @@ module Control.Has.Error (hasFrom, hasFromWith) where
 import Language.Haskell.TH
 import Control.Has.Config (Config(..), defaultConfig)
 import Control.Monad.Error.Class (MonadError, throwError, catchError)
-
+import Control.Has.Prism (writeFromFun, writeFromMatchFun,writeMatchFun)
+import Language.Haskell.TH.Syntax (lift)
 -- | Generate a conversion class for parsing/failing from a source type.
 --
 -- Example:
@@ -61,11 +62,23 @@ hasFromWith cfg tyName = do
           ((varE 'throwError) `appE` (varE methodName `appE` (varE input)))) []]
   let fromDecs = [cls, inst, throwFun,throwFunSig]
   
-  if generateMatch cfg
-    then do
-      matchDecs <- hasMatchWith (Just className) (superConfig cfg) tyName
-      return (fromDecs ++ matchDecs)
-    else return fromDecs
+  matchDecs <- 
+    if generateMatch cfg
+      then 
+        hasMatchWith (Just (className, methodName)) (superConfig cfg) tyName
+      else do 
+        let generateInstancesName = mkName ("generateFrom" ++ typeStr)
+        generateInstancesSig <- sigD generateInstancesName (arrowT `appT` (conT ''Name) `appT` (appT (conT ''Q) (appT (conT ''[]) (conT ''Dec))))
+        generateInstances <-
+          valD
+              (varP generateInstancesName)
+              (normalB (varE 'writeFromFun
+                           `appE` (lift className)
+                           `appE` (lift methodName)
+                           `appE` (lift tyName)))
+              []
+        return [generateInstancesSig, generateInstances]
+  return (matchDecs ++ fromDecs)
 defaultErrorConfig :: ErrorConfig
 defaultErrorConfig = ErrorConfig
   { superConfig = defaultConfig
@@ -84,7 +97,7 @@ hasFrom = hasFromWith defaultErrorConfig
 -- The generator does NOT create any instances automatically; you can
 -- implement instances for your application's monads (for example using
 -- `MonadError`).
-hasMatchWith :: Maybe Name -> Config -> Name -> Q [Dec]
+hasMatchWith :: Maybe (Name, Name) -> Config -> Name -> Q [Dec]
 hasMatchWith maybeSuperclass cfg tyName = do
   let typeStr = case nameOverride cfg of
                   Just s -> s
@@ -96,7 +109,7 @@ hasMatchWith maybeSuperclass cfg tyName = do
   let sigType = arrowT `appT` varT e `appT` (conT ''Maybe `appT` (conT tyName))
   let sig = sigD matchMethodName sigType
   cls <- classD (cxt (case maybeSuperclass of 
-                          Just superclass -> [conT superclass `appT` varT e]
+                          Just (superclass,_) -> [conT superclass `appT` varT e]
                           Nothing -> [])) matchClassName [plainTV e] [] [sig]
   inst <- instanceD (cxt []) (appT (conT matchClassName) (conT tyName)) [
       funD matchMethodName [clause [] (normalB (conE 'Just)) []]
@@ -130,7 +143,38 @@ hasMatchWith maybeSuperclass cfg tyName = do
         )
         []
       ] 
-  return [cls, inst,mtlFun,mtlSig]
+  
+  generateInstances <- 
+   case maybeSuperclass of
+    Nothing -> do 
+      let generateName = mkName ("generateMatch" ++ typeStr)
+      generateInstancesSig <- sigD generateName (arrowT `appT` (conT ''Name) `appT` (appT (conT ''Q) (appT (conT ''[]) (conT ''Dec))))
+      generateInstances <-
+        valD
+            (varP generateName)
+            (normalB (varE 'writeMatchFun
+                         `appE` (lift matchClassName)
+                         `appE` (lift matchMethodName)
+                         `appE` (lift tyName)))
+            []
+      return [generateInstancesSig, generateInstances]
+    Just (superClass,superMethod) -> do
+      let generateName = mkName ("generateCatch" ++ typeStr)
+      generateInstancesSig <- sigD generateName (arrowT `appT` (conT ''Name) `appT` (appT (conT ''Q) (appT (conT ''[]) (conT ''Dec))))
+      generateInstances <-
+        valD
+            (varP generateName)
+            (normalB (varE 'writeFromMatchFun
+                         `appE` (lift superClass)
+                         `appE` (lift superMethod)
+                         `appE` (lift matchClassName)
+                         `appE` (lift matchMethodName)
+                         `appE` (lift tyName)))
+            []
+      return [generateInstancesSig, generateInstances]
+
+
+  return $ generateInstances ++ [cls, inst,mtlFun,mtlSig]
 -- convenience wrapper using defaultConfig
 hasMatch :: Name -> Q [Dec]
 hasMatch = hasMatchWith Nothing defaultConfig
